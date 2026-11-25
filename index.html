@@ -2635,7 +2635,7 @@
     // =========================================================
     // CANVAS
     // =========================================================
-    function Canvas({ zoom, fitMode }) {
+    function Canvas({ zoom, fitMode, theme }) {
       const { state, dispatch } = useStudio();
       const { components, selectedId, previewMode, deviceMode } = state;
       const canvasRef = useRef(null);
@@ -2686,10 +2686,16 @@
       }, [components, zoom]);
 
       const effectiveZoom = zoom || 1;
+      const dynamicMinHeight = Math.max(
+        pageMinHeight,
+        ...components
+          .filter(c => c.visible !== false)
+          .map(c => (c.y || 0) + (typeof c.height === 'number' ? c.height : 120) + 60)
+      );
       // CSS transform scale doesn't change layout size — compensate with negative margin
       // to avoid giant empty space below the visually shrunken page canvas.
       const scaledMarginCorrection = effectiveZoom < 1
-        ? pageMinHeight * (1 - effectiveZoom)
+        ? dynamicMinHeight * (1 - effectiveZoom)
         : 0;
 
       return (
@@ -2699,18 +2705,17 @@
           style={{
             flex: 1,
             overflow: 'auto',
-            padding: 40,
+            padding: 32,
             minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
           }}
           onClick={handleCanvasClick}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
         >
           {/* Device badge shown above the page */}
-          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div style={{ margin: '0 auto 10px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <div style={{
               background: '#171717',
               border: '1px solid #383838',
@@ -2730,6 +2735,8 @@
           </div>
           {/* Zoom wrapper — CSS transform scale only, doesn't affect stored positions */}
           <div style={{
+            marginLeft: 'auto',
+            marginRight: 'auto',
             transformOrigin: 'top center',
             transform: `scale(${effectiveZoom})`,
             flexShrink: 0,
@@ -2742,8 +2749,9 @@
               style={{
                 position: 'relative',
                 width: pageWidth,
-                minHeight: pageMinHeight,
+                minHeight: dynamicMinHeight,
                 backgroundColor: '#ffffff',
+                fontFamily: theme?.fontFamily || 'Inter, sans-serif',
                 lineHeight: 'normal',
                 boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
                 borderRadius: deviceMode === 'mobile' ? 16 : deviceMode === 'tablet' ? 8 : 2,
@@ -2946,7 +2954,7 @@
       };
 
       return (
-        <div style={{ borderTop: '1px solid #383838', flexShrink: 0, display: 'flex', flexDirection: 'column', maxHeight: 210, backgroundColor: '#171717' }}>
+        <div style={{ borderTop: '1px solid #383838', flexShrink: 0, display: 'flex', flexDirection: 'column', maxHeight: 230, backgroundColor: '#171717' }}>
           <div style={{ padding: '8px 12px', borderBottom: '1px solid #383838', backgroundColor: '#171717', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: '#A3A3A3', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Pages</span>
@@ -2973,7 +2981,7 @@
             </button>
           </div>
 
-          <div style={{ overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '4px 0', maxHeight: 165 }}>
+          <div style={{ overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '4px 0 6px', maxHeight: 185 }}>
             {pages.map((page, idx) => {
               const isActive = page.id === activePageId;
               const isDragOver = dragOverId === page.id;
@@ -3834,7 +3842,7 @@
     // =========================================================
     // PREVIEW MODE (full-screen multi-page overlay)
     // =========================================================
-    function PreviewMode({ pages, initialPageId, deviceMode, onExit }) {
+    function PreviewMode({ pages, initialPageId, deviceMode, theme, onExit }) {
       const device = DEVICE_PRESETS[deviceMode] || DEVICE_PRESETS.desktop;
       const [fullscreen, setFullscreen] = useState(false);
       const [previewPageId, setPreviewPageId] = useState(() => {
@@ -3845,6 +3853,12 @@
 
       const currentPage = pages.find(p => p.id === previewPageId) || pages[0];
       const pageComponents = currentPage?.components || [];
+      const previewMinHeight = Math.max(
+        device.minHeight,
+        ...pageComponents
+          .filter(c => c.visible !== false)
+          .map(c => (c.y || 0) + (typeof c.height === 'number' ? c.height : 120) + 80)
+      );
 
       const handleFullscreen = () => {
         if (!document.fullscreenElement) {
@@ -3866,8 +3880,9 @@
             width: device.width,
             margin: '0 auto',
             position: 'relative',
-            minHeight: device.minHeight,
+            minHeight: previewMinHeight,
             background: '#fff',
+            fontFamily: theme?.fontFamily || 'Inter, sans-serif',
           }}>
             {pageComponents.filter(c => c.visible).map(comp => (
               <CanvasComponent
@@ -3930,12 +3945,24 @@
     // =========================================================
     // EXPORT HTML (Multi-Page Website Bundle)
     // =========================================================
-    function exportHTML(pagesOrComponents, projectName, activePageId) {
+    function exportHTML(pagesOrComponents, projectName, activePageId, theme) {
+      const escHtml = (val) => String(val ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
       const pages = Array.isArray(pagesOrComponents) && pagesOrComponents[0]?.components !== undefined
         ? pagesOrComponents
         : [{ id: 'page_home', name: 'Home', slug: 'home', isHome: true, components: pagesOrComponents || [] }];
       const homePage = pages.find(p => p.isHome) || pages[0];
       const TEXT_TYPES = ['heading', 'paragraph', 'text'];
+      const siteFont = theme?.fontFamily || "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+      const fontName = siteFont.split(',')[0].replace(/['"]/g, '').trim();
+      const systemFonts = ['system-ui','-apple-system','BlinkMacSystemFont','Segoe UI','sans-serif','serif'];
+      const gfontLink = !systemFonts.some(sf => fontName.toLowerCase().includes(sf.toLowerCase()))
+        ? `\n  <link href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontName)}:wght@400;600;700&display=swap" rel="stylesheet">`
+        : '';
 
       const getPageFilename = (pg) => {
         if (!pg) return 'index.html';
@@ -3979,25 +4006,25 @@
 
         switch (type) {
           case 'heading':
-            return `<h1 style="${bs}; font-size: ${p.fontSize}px; font-weight: ${p.fontWeight}; color: ${p.color}; text-align: ${p.textAlign}; line-height: ${p.lineHeight || 1.25}; margin: 0; padding: 4px; display: block;">${p.text}</h1>`;
+            return `<h1 style="${bs}; font-size: ${p.fontSize}px; font-weight: ${p.fontWeight}; color: ${p.color}; text-align: ${p.textAlign}; line-height: ${p.lineHeight || 1.25}; margin: 0; padding: 4px; display: block;">${escHtml(p.text)}</h1>`;
           case 'paragraph':
-            return `<p style="${bs}; font-size: ${p.fontSize}px; font-weight: ${p.fontWeight}; color: ${p.color}; line-height: ${p.lineHeight || 1.6}; text-align: ${p.textAlign}; margin: 0; padding: 4px; display: block;">${p.text}</p>`;
+            return `<p style="${bs}; font-size: ${p.fontSize}px; font-weight: ${p.fontWeight}; color: ${p.color}; line-height: ${p.lineHeight || 1.6}; text-align: ${p.textAlign}; margin: 0; padding: 4px; display: block;">${escHtml(p.text)}</p>`;
           case 'text':
-            return `<span style="${bs}; font-size: ${p.fontSize}px; font-weight: ${p.fontWeight}; color: ${p.color}; line-height: ${p.lineHeight || 1.5}; display: block; padding: 4px;">${p.text}</span>`;
+            return `<span style="${bs}; font-size: ${p.fontSize}px; font-weight: ${p.fontWeight}; color: ${p.color}; line-height: ${p.lineHeight || 1.5}; display: block; padding: 4px;">${escHtml(p.text)}</span>`;
           case 'button': {
             if (p.targetPageId) {
               const dest = pages.find(pg => pg.id === p.targetPageId);
               const hrefFile = getPageFilename(dest);
-              return `<a href="${hrefFile}" style="${bs}; display: inline-block; background-color: ${p.bgColor}; color: ${p.textColor}; border-radius: ${p.borderRadius}px; padding: ${p.paddingY}px ${p.paddingX}px; text-decoration: none; font-weight: 600; font-size: 14px; text-align: center; white-space: nowrap;">${p.label}</a>`;
+              return `<a href="${escHtml(hrefFile)}" style="${bs}; display: inline-block; background-color: ${p.bgColor}; color: ${p.textColor}; border-radius: ${p.borderRadius}px; padding: ${p.paddingY}px ${p.paddingX}px; text-decoration: none; font-weight: 600; font-size: 14px; text-align: center; white-space: nowrap;">${escHtml(p.label)}</a>`;
             }
-            return `<a href="${p.href || '#'}" style="${bs}; display: inline-block; background-color: ${p.bgColor}; color: ${p.textColor}; border-radius: ${p.borderRadius}px; padding: ${p.paddingY}px ${p.paddingX}px; text-decoration: none; font-weight: 600; font-size: 14px; text-align: center; white-space: nowrap;">${p.label}</a>`;
+            return `<a href="${escHtml(p.href || '#')}" style="${bs}; display: inline-block; background-color: ${p.bgColor}; color: ${p.textColor}; border-radius: ${p.borderRadius}px; padding: ${p.paddingY}px ${p.paddingX}px; text-decoration: none; font-weight: 600; font-size: 14px; text-align: center; white-space: nowrap;">${escHtml(p.label)}</a>`;
           }
           case 'navbar': {
             const links = Array.isArray(p.links) ? p.links : [];
             const justifyMap = { 'space-between': 'space-between', left: 'flex-start', center: 'center', right: 'flex-end' };
             const justify = justifyMap[p.align] || 'space-between';
             const brandHtml = p.showBrand !== false
-              ? `<span style="font-weight: 700; font-size: ${(p.fontSize || 14) + 4}px; color: ${p.textColor || '#f8fafc'}; white-space: nowrap;">${p.brandText || 'MySite'}</span>`
+              ? `<span style="font-weight: 700; font-size: ${(p.fontSize || 14) + 4}px; color: ${p.textColor || '#f8fafc'}; white-space: nowrap;">${escHtml(p.brandText || 'MySite')}</span>`
               : '';
             const linksHtml = links.map(link => {
               const dest = pages.find(pg => pg.id === link.pageId);
@@ -4005,20 +4032,20 @@
               const isActive = link.pageId === currentPageId;
               const col = isActive ? (p.activeColor || '#3b82f6') : (p.textColor || '#f8fafc');
               const border = isActive ? `2px solid ${p.activeColor || '#3b82f6'}` : '2px solid transparent';
-              return `<a href="${hrefFile}" style="color: ${col}; font-size: ${p.fontSize || 14}px; font-weight: ${isActive ? 700 : 500}; text-decoration: none; white-space: nowrap; border-bottom: ${border}; padding-bottom: 2px;">${link.label}</a>`;
+              return `<a href="${escHtml(hrefFile)}" style="color: ${col}; font-size: ${p.fontSize || 14}px; font-weight: ${isActive ? 700 : 500}; text-decoration: none; white-space: nowrap; border-bottom: ${border}; padding-bottom: 2px;">${escHtml(link.label)}</a>`;
             }).join('');
             return `<nav style="${bs}; background-color: ${p.bgColor || '#1e293b'}; color: ${p.textColor || '#f8fafc'}; display: flex; align-items: center; justify-content: ${justify}; padding-left: ${p.paddingX ?? 24}px; padding-right: ${p.paddingX ?? 24}px; gap: ${p.gap ?? 20}px; box-sizing: border-box;">${brandHtml}<div style="display: flex; align-items: center; gap: ${p.gap ?? 20}px; flex-wrap: wrap;">${linksHtml}</div></nav>`;
           }
           case 'image':
-            return p.src ? `<img src="${p.src}" alt="${p.alt}" style="${bs}; object-fit: ${p.objectFit}; border-radius: ${p.borderRadius || 0}px;" />` : `<div style="${bs}; background: #e5e7eb; display: flex; align-items: center; justify-content: center; color: #9ca3af;">No Image</div>`;
+            return p.src ? `<img src="${escHtml(p.src)}" alt="${escHtml(p.alt)}" style="${bs}; object-fit: ${p.objectFit}; border-radius: ${p.borderRadius || 0}px;" />` : `<div style="${bs}; background: #e5e7eb; display: flex; align-items: center; justify-content: center; color: #9ca3af;">No Image</div>`;
           case 'container':
             return `<div style="${bs}; background-color: ${p.bgColor || 'transparent'}; padding: ${p.padding}px; border-radius: ${p.borderRadius}px; border: ${p.borderWidth}px solid ${p.borderColor};"></div>`;
           case 'section':
             return `<div style="${bs}; background-color: ${p.bgColor}; padding: ${p.padding}px; border: ${p.borderWidth}px solid ${p.borderColor};"></div>`;
           case 'card':
-            return `<div style="${bs}; height: auto; overflow: visible; background-color: ${p.bgColor}; border-radius: ${p.borderRadius}px; padding: 24px; ${p.shadow ? 'box-shadow: 0 10px 25px rgba(0,0,0,0.12);' : ''}"><h3 style="margin: 0 0 8px; font-size: 18px; font-weight: 700; color: #1a1a1a; line-height: 1.3; overflow-wrap: break-word;">${p.title}</h3><p style="margin: 0; font-size: 14px; color: #6b7280; line-height: 1.5; overflow-wrap: break-word;">${p.body}</p></div>`;
+            return `<div style="${bs}; height: auto; overflow: visible; background-color: ${p.bgColor}; border-radius: ${p.borderRadius}px; padding: 24px; ${p.shadow ? 'box-shadow: 0 10px 25px rgba(0,0,0,0.12);' : ''}"><h3 style="margin: 0 0 8px; font-size: 18px; font-weight: 700; color: #1a1a1a; line-height: 1.3; overflow-wrap: break-word;">${escHtml(p.title)}</h3><p style="margin: 0; font-size: 14px; color: #6b7280; line-height: 1.5; overflow-wrap: break-word;">${escHtml(p.body)}</p></div>`;
           case 'input':
-            return `<div style="${bs}; padding: 4px;">${p.labelText ? `<label style="display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 4px;">${p.labelText}</label>` : ''}<input type="${p.inputType}" placeholder="${p.placeholder}" style="width: 100%; padding: 8px 12px; border: 1px solid ${p.borderColor}; border-radius: 6px; font-size: 14px; color: #374151; box-sizing: border-box;" /></div>`;
+            return `<div style="${bs}; padding: 4px;">${p.labelText ? `<label style="display: block; font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 4px;">${escHtml(p.labelText)}</label>` : ''}<input type="${escHtml(p.inputType)}" placeholder="${escHtml(p.placeholder)}" style="width: 100%; padding: 8px 12px; border: 1px solid ${p.borderColor}; border-radius: 6px; font-size: 14px; color: #374151; box-sizing: border-box;" /></div>`;
           case 'divider':
             return `<hr style="${bs}; border-color: ${p.color}; border-top-width: ${p.thickness}px; border-style: solid; border-bottom: none; border-left: none; border-right: none; margin: 0;" />`;
           default:
@@ -4034,10 +4061,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${projectName} — ${pg.name}</title>
+  <title>${escHtml(projectName)} — ${escHtml(pg.name)}</title>${gfontLink}
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; display: flex; justify-content: center; }
+    body { margin: 0; font-family: ${siteFont}; background: #f9fafb; display: flex; justify-content: center; }
     .page { position: relative; width: 1280px; min-height: 900px; background: white; }
   </style>
 </head>
@@ -4063,7 +4090,7 @@
     // =========================================================
     // TOOLBAR
     // =========================================================
-    function Toolbar({ onOpenTemplates, onOpenTheme, zoom, setZoom, fitMode, setFitMode, handleFitToScreen, leftPanelOpen, setLeftPanelOpen, rightPanelOpen, setRightPanelOpen }) {
+    function Toolbar({ onOpenTemplates, onOpenTheme, theme, zoom, setZoom, fitMode, setFitMode, handleFitToScreen, leftPanelOpen, setLeftPanelOpen, rightPanelOpen, setRightPanelOpen }) {
       const { state, dispatch } = useStudio();
       const { projectName, previewMode, history, historyIndex, components, pages, activePageId, deviceMode } = state;
       const [saved, setSaved] = useState(false);
@@ -4107,14 +4134,16 @@
             background: active ? '#10A37F' : '#2A2A2A',
             border: '1px solid #383838',
             borderRadius: 6,
-            padding: '6px 10px',
+            padding: '5px 8px',
             cursor: disabled ? 'not-allowed' : 'pointer',
             color: disabled ? '#525252' : active ? '#fff' : '#F5F5F5',
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
-            fontSize: 12,
+            gap: 5,
+            fontSize: 11.5,
             fontWeight: 500,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
             transition: 'all 0.15s',
           }}
         >
@@ -4123,7 +4152,7 @@
       );
 
       return (
-        <div className="toolbar" style={{ height: 52, display: 'flex', alignItems: 'center', paddingLeft: 16, paddingRight: 16, gap: 8, flexShrink: 0 }}>
+        <div className="toolbar" style={{ height: 52, display: 'flex', alignItems: 'center', paddingLeft: 12, paddingRight: 12, gap: 6, flexShrink: 0, overflowX: 'auto', overflowY: 'hidden' }}>
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', marginRight: 10 }}>
             <span
@@ -4156,7 +4185,7 @@
           <input
             value={projectName}
             onChange={e => dispatch({ type: 'SET_PROJECT_NAME', payload: e.target.value })}
-            style={{ background: '#2A2A2A', border: '1px solid #383838', borderRadius: 6, padding: '5px 12px', color: '#F5F5F5', fontSize: 13, fontWeight: 600, width: 140, textAlign: 'center', marginLeft: 4 }}
+            style={{ background: '#2A2A2A', border: '1px solid #383838', borderRadius: 6, padding: '5px 8px', color: '#F5F5F5', fontSize: 12, fontWeight: 600, width: 112, textAlign: 'center', marginLeft: 2, flexShrink: 0 }}
           />
 
           {/* Active Page Quick Switcher */}
@@ -4251,7 +4280,7 @@
 
             <ToolBtn onClick={() => {
               const syncedPages = (pages || []).map(p => p.id === activePageId ? { ...p, components } : p);
-              exportHTML(syncedPages, projectName, activePageId);
+              exportHTML(syncedPages, projectName, activePageId, theme);
             }} tip="Export Multi-Page HTML">
               <Icon name="Download" size={14} />
               <span>Export</span>
@@ -4351,13 +4380,13 @@
           }
 
           // Undo
-          if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+          if (e.ctrlKey && e.key === 'z' && !e.shiftKey && !inInput) {
             e.preventDefault();
             dispatch({ type: 'UNDO' });
           }
 
           // Redo (Ctrl+Y or Ctrl+Shift+Z)
-          if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+          if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z')) && !inInput) {
             e.preventDefault();
             dispatch({ type: 'REDO' });
           }
@@ -4390,7 +4419,7 @@
           }
 
           // FEATURE 4: Duplicate (Ctrl+D)
-          if (e.ctrlKey && e.key === 'd') {
+          if (e.ctrlKey && e.key === 'd' && !inInput) {
             e.preventDefault();
             if (state.selectedId) dispatch({ type: 'DUPLICATE_COMPONENT', payload: state.selectedId });
           }
@@ -4447,6 +4476,7 @@
               pages={(state.pages || []).map(p => p.id === state.activePageId ? { ...p, components: state.components } : p)}
               initialPageId={state.activePageId}
               deviceMode={state.deviceMode}
+              theme={theme}
               onExit={() => dispatch({ type: 'SET_PREVIEW', payload: false })}
             />
           ) : (
@@ -4454,6 +4484,7 @@
               <Toolbar
                 onOpenTemplates={() => setShowTemplates(true)}
                 onOpenTheme={() => setShowTheme(true)}
+                theme={theme}
                 zoom={zoom}
                 setZoom={setZoom}
                 fitMode={fitMode}
@@ -4469,7 +4500,7 @@
                 <div style={{ width: leftPanelOpen ? 220 : 0, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'width 0.2s ease', flexShrink: 0 }}>
                   <ComponentLibrary />
                 </div>
-                <Canvas zoom={zoom} fitMode={fitMode} />
+                <Canvas zoom={zoom} fitMode={fitMode} theme={theme} />
                 {/* Collapsible right panel */}
                 <div style={{ width: rightPanelOpen ? 260 : 0, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'width 0.2s ease', flexShrink: 0 }}>
                   <PropertiesPanel />
